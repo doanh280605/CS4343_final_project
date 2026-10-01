@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cs4343-landcover"
+version = "0.1.0"
+description = "Reproducible EuroSAT land-cover experiments and Nepal transfer workflow"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  "torch==2.6.0", "torchvision==0.21.0", "numpy>=2.1,<3",
+  "scikit-learn>=1.6,<2", "matplotlib>=3.10,<4", "pillow>=11,<13",
+  "rasterio>=1.4,<2", "PyYAML>=6.0.2,<7", "requests>=2.32.3,<3",
+]
+[project.optional-dependencies]
+nepal = ["earthengine-api>=1.5,<2"]
+[dependency-groups]
+dev = ["pytest>=8.3,<10", "ruff>=0.11,<1"]
+[project.scripts]
+landcover = "landcover.cli:main"
+[tool.hatch.build.targets.wheel]
+packages = ["src/landcover"]
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+[tool.ruff]
+line-length = 100
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+[tool.uv]
+required-version = ">=0.6"
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+torchvision = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true

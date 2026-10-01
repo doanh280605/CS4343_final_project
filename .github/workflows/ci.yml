@@ -1,0 +1,24 @@
+name: checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  foundation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      MPLCONFIGDIR: ${{ github.workspace }}/.cache/matplotlib
+      TORCH_HOME: ${{ github.workspace }}/.cache/torch
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.9.26"
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run pytest -q
+      - run: uv run landcover smoke --output outputs/ci-smoke

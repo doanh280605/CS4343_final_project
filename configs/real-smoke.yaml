@@ -1,0 +1,14 @@
+manifest: data/real-smoke/manifest.json
+splits: data/real-smoke/splits.json
+output: outputs/real-smoke
+model: compact
+initialization: scratch
+input_type: rgb
+rgb_source: jpg
+fraction: 1.0
+seed: 42
+steps: 3
+eval_every: 1
+batch_size: 8
+threads: 2
+device: cpu

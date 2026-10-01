@@ -1,0 +1,17 @@
+# Deliberately unset: choose and verify an event before encoding acquisition dates.
+# Source must establish the event date; source_checked_on records human verification.
+event_name: null
+event_date: null
+event_source: null
+source_checked_on: null
+project: null
+bbox: null
+pre_start: null
+pre_end: null
+post_start: null
+post_end: null
+collection: COPERNICUS/S2_HARMONIZED
+crs: EPSG:32645
+scale: 10
+clear_threshold: 0.6
+drive_folder: CS4343_Nepal
