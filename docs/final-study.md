@@ -76,6 +76,90 @@ open outputs/final-study/report-test/index.html
 
 This evaluates all 48 main checkpoints plus three compact baselines on the fixed test split. Regularization ablations remain validation-only. The command requires every validation job, freezes model selection, and invokes the explicit test guard. Do not tune settings or select seeds from test results.
 
+## Turing A30 batch jobs
+
+On October 6, the user's `ece341x` account successfully allocated one A30 on
+`academic`; `short` explicitly denied this account. Scripts use that verified account
+and partition. Other team members must use their own authorized account. A successful
+`nvidia-smi` check establishes GPU access, not training speed or end-to-end readiness.
+
+Copy the existing small team bundle from the **Mac terminal**, from the repository root:
+
+```sh
+scp outputs/colab-setup/landcover-colab.zip lphung@turing.wpi.edu:~/landcover-colab.zip
+```
+
+In the **Turing terminal**:
+
+```sh
+git clone https://github.com/doanh280605/CS4343_final_project.git
+cd CS4343_final_project
+bash scripts/submit_turing.sh "$HOME/landcover-colab.zip"
+squeue --me
+```
+
+If this checkout already exists, enter it and use `git pull --ff-only` before submitting.
+Do not update source during a frozen study. The bundle supplies only the exact prepared
+manifests/splits; current code comes from Git. The importer verifies their hashes and
+refuses to overwrite different existing manifests. No dataset upload is needed.
+
+Submission creates two jobs. Setup requests four CPUs and 16 GB RAM for up to two hours,
+with no GPU. It installs Python 3.12-compatible pinned dependencies in `.venv-turing`,
+uses official PyTorch 2.6.0/torchvision 0.21.0 CUDA 12.4 wheels, downloads/caches imagery
+and pretrained weights, audits imagery and freezes a new CUDA study. This retains
+`uv.lock`; the GPU environment departure is recorded separately. It uses the exact
+module names shown by the user's cluster session; unavailable modules cause setup to
+fail rather than silently switch environments.
+
+Training waits for successful setup, requests one A30, four CPUs and 16 GB RAM for up
+to 24 hours, and runs the shared 63-job study. The time limit is an allocation limit,
+not a runtime estimate. The training job is cancelled if its setup dependency fails.
+Both phases run on compute nodes. A per-checkout lock rejects overlapping setup or
+training jobs. The scripts never request GPUs in partitions blocked to this account.
+
+Results persist at `outputs/turing-study` inside the Turing checkout, separately from
+the Mac and Colab studies; earlier runs are not imported or merged. The base protocol,
+all data memberships, seeds, budgets and validation rules are preserved; device is
+CUDA. GPU/driver/SLURM metadata are saved per job. Allow roughly 20 GB of space for
+results plus space for the Python environment. Downloads and caches are under
+`/scratch/$USER/cs4343-landcover`; scratch may be purged, so results stay in the home
+checkout. See [Turing storage](https://docs.turing.wpi.edu/best-practices/storing_data/)
+and [Python environments](https://docs.turing.wpi.edu/software/python/).
+
+After `sbatch` returns job IDs, logging out or turning off the Mac does not cancel
+these batch jobs. Monitor the printed job IDs and logs:
+
+```sh
+squeue --me
+tail -f outputs/turing-setup-SETUP_JOB_ID.log
+tail -f outputs/turing-train-TRAIN_JOB_ID.log
+```
+
+`Ctrl+C` stops `tail`, not the submitted job. Use `scancel JOB_ID` only for the job you
+intend to stop. After a time limit or interruption, resubmit training from the same
+checkout with `sbatch scripts/turing_train.sbatch`; completed jobs are verified/skipped,
+and an unfinished training job restarts in a new attempt. Exact optimizer-step resume
+is unavailable. If setup failed, inspect its log before resubmitting the setup chain.
+
+Once all validation jobs finish, explicitly submit the final test phase:
+
+```sh
+sbatch scripts/turing_train.sbatch test
+```
+
+Reports are `outputs/turing-study/report-val/` and `report-test/`. Copy the completed
+study back to the Mac from a Mac terminal (this can transfer 15–20 GB):
+
+```sh
+mkdir -p outputs/turing-study
+rsync -av lphung@turing.wpi.edu:~/CS4343_final_project/outputs/turing-study/ outputs/turing-study/
+```
+
+Local verification covers shell syntax, unchanged manifest import, refusal of corrupt
+or conflicting manifests, and repository checks. Installation and full training on
+Turing still require execution there. Keep Colab/Mac artifacts until final results have
+been verified and backed up.
+
 For optional Nepal transfer, choose the main configuration with highest mean validation macro-F1 across three seeds; exact ties use lexical condition order. Seed 42 is the predeclared representative checkpoint. This avoids best-seed selection. The record is `outputs/final-study/selection.json`; it does not acquire Nepal imagery or complete transfer evaluation.
 
 ## Recovery and reproducibility

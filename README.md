@@ -39,6 +39,10 @@ export XDG_CACHE_HOME="$PWD/.cache"
 
 ## Google Colab and shared experiments
 
+Turing users: [A30 batch setup](docs/final-study.md#turing-a30-batch-jobs) runs through
+SLURM and keeps running after SSH disconnects. The supplied scripts use the verified
+`ece341x` account and `academic` partition; colleagues need an authorized account.
+
 Open the [Colab notebook](https://colab.research.google.com/github/doanh280605/CS4343_final_project/blob/main/notebooks/landcover_colab.ipynb) and choose a GPU runtime. It installs CUDA PyTorch, caches the verified dataset ZIP in Drive, streams errors/progress, and saves results to Drive. See [study instructions](docs/final-study.md) for storage requirements and interrupted-run behavior.
 
 The notebook requests `landcover-colab.zip`, which is intentionally not committed.
