@@ -160,6 +160,20 @@ or conflicting manifests, and repository checks. Installation and full training 
 Turing still require execution there. Keep Colab/Mac artifacts until final results have
 been verified and backed up.
 
+Recovery from setup job 2348179: the compute node lacked the Git executable, causing
+metadata recording to fail after generating configs. Git metadata is now optional:
+an unavailable command records `git_commit: unavailable` and `git_dirty: null`, while
+source hashes/snapshots, package versions and data checks remain mandatory. A configs-only
+unfinished setup is preserved under a unique `turing-study-unfinished-setup-*` name before
+preparing again. Any existing protocol is validated; directories containing training
+artifacts or unexpected files are never automatically moved/reset. Cached imagery,
+weights and installed dependencies are reused on retry.
+
+For this failed setup, run `git pull --ff-only` and then the same submission command.
+The provenance fix changes a source hash, so older frozen Mac/Colab studies must keep
+their original source/bundle; updating a checkout for an already-frozen study will be
+rejected. No Turing model training had started when this setup failed.
+
 For optional Nepal transfer, choose the main configuration with highest mean validation macro-F1 across three seeds; exact ties use lexical condition order. Seed 42 is the predeclared representative checkpoint. This avoids best-seed selection. The record is `outputs/final-study/selection.json`; it does not acquire Nepal imagery or complete transfer evaluation.
 
 ## Recovery and reproducibility

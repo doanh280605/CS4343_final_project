@@ -1,5 +1,6 @@
 import csv
 import json
+import subprocess
 from dataclasses import asdict, replace
 
 import numpy as np
@@ -12,6 +13,22 @@ from landcover.engine import build_optimizer, build_scheduler, evaluate, load_ch
 from landcover.experiments import grid
 from landcover.metrics import score
 from landcover.models import build_model, expand_rgb_weights
+
+
+@pytest.mark.parametrize("failure", ["missing_git", "not_a_repository"])
+def test_provenance_without_git_reports_unknown_state(monkeypatch, failure):
+    from landcover import engine
+
+    def unavailable_git(*args, **kwargs):
+        if failure == "missing_git":
+            raise FileNotFoundError("git")
+        return subprocess.CompletedProcess(args[0], 128, stdout="", stderr="not a repository")
+
+    monkeypatch.setattr(engine.subprocess, "run", unavailable_git)
+    record = engine.provenance()
+    assert record["git_commit"] == "unavailable"
+    assert record["git_dirty"] is None
+    assert record["versions"]["torch"]
 
 
 def test_metrics_known_answer():

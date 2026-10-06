@@ -57,12 +57,19 @@ def device_for(name):
 
 def provenance():
     def git(*args):
-        result = subprocess.run(["git", *args], capture_output=True, text=True, check=False)
-        return result.stdout.strip() if result.returncode == 0 else "unavailable"
+        try:
+            result = subprocess.run(["git", *args], capture_output=True, text=True, check=False)
+        except OSError:
+            # Compute nodes and source bundles may have no Git executable.
+            # Frozen studies independently retain and verify all source-file hashes.
+            return None
+        return result.stdout.strip() if result.returncode == 0 else None
 
+    commit = git("rev-parse", "HEAD")
+    status = git("status", "--porcelain")
     return {
-        "git_commit": git("rev-parse", "HEAD"),
-        "git_dirty": bool(git("status", "--porcelain")),
+        "git_commit": commit or "unavailable",
+        "git_dirty": None if status is None else bool(status),
         "python": platform.python_version(),
         "platform": platform.platform(),
         "versions": {

@@ -6,6 +6,7 @@ import json
 import zipfile
 from dataclasses import replace
 from pathlib import Path
+from uuid import uuid4
 
 from landcover.config import Config
 from landcover.download import download
@@ -36,6 +37,30 @@ def import_manifests(bundle, destination=Path("data/prepared-ms-v2")):
     return metadata
 
 
+def preserve_unfinished_setup(root):
+    """Move only an unfrozen configs-only setup aside; never move training artifacts."""
+    root = Path(root)
+    if not root.exists():
+        return None
+    if root.is_symlink() or not root.is_dir():
+        raise ValueError(f"Expected a real study directory: {root}")
+    if (root / "protocol.json").exists():
+        return None  # Existing frozen studies must pass load_study, not be reset.
+    if any(path.name != "configs" for path in root.iterdir()):
+        raise ValueError(f"Unfrozen study contains more than setup configs; inspect {root}")
+    configs = root / "configs"
+    if configs.is_symlink() or (configs.exists() and not configs.is_dir()):
+        raise ValueError(f"Unexpected setup config path: {configs}")
+    if configs.exists() and any(
+        p.is_symlink() or not p.is_file() or p.suffix != ".yaml" for p in configs.iterdir()
+    ):
+        raise ValueError(f"Unexpected files in setup configs; inspect {configs}")
+    backup = root.with_name(f"{root.name}-unfinished-setup-{uuid4().hex}")
+    root.rename(backup)
+    print(f"Preserved unfinished setup at {backup}", flush=True)
+    return backup
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bundle", type=Path, required=True)
@@ -59,7 +84,12 @@ def main():
 
     ResNet18_Weights.DEFAULT.get_state_dict(progress=True, check_hash=True)
     root = Path("outputs/turing-study")
+    preserve_unfinished_setup(root)
     if not root.exists():
+        print(
+            "Auditing all imagery and freezing the study; this can take several minutes.",
+            flush=True,
+        )
         base = replace(Config.load("configs/final-study.yaml"), device="cuda", output=str(root))
         prepare_study(root, base)
     plan = load_study(root)
