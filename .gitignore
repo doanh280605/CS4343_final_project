@@ -10,6 +10,11 @@ __pycache__/
 !.env.example
 data/
 outputs/
+# Downloaded EuroSAT archives and extracted folders at the repository root.
+/EuroSAT_MS/
+/EuroSAT_RGB/
+/EuroSAT*.zip
+/EuroSAT*.partial
 *.pt
 *.pth
 *.ckpt

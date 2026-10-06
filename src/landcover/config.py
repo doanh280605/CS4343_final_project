@@ -21,6 +21,10 @@ class Config:
     eval_every: int = 100
     batch_size: int = 64
     learning_rate: float = 0.001
+    pretrained_backbone_learning_rate: float | None = None
+    scheduler: str = "constant"
+    warmup_steps: int = 0
+    measure_train_metrics: bool = False
     weight_decay: float = 0.0001
     dropout: float = 0.3
     augmentation: bool = True
@@ -46,6 +50,17 @@ class Config:
             raise ValueError("batch size >=2, workers >=0, dropout in [0,1) required")
         if self.learning_rate <= 0 or self.weight_decay < 0:
             raise ValueError("invalid optimization parameters")
+        if (
+            self.pretrained_backbone_learning_rate is not None
+            and self.pretrained_backbone_learning_rate <= 0
+        ):
+            raise ValueError("pretrained backbone learning rate must be positive")
+        if self.scheduler not in {"constant", "cosine"}:
+            raise ValueError("scheduler must be constant or cosine")
+        if not 0 <= self.warmup_steps < self.steps:
+            raise ValueError("warmup_steps must be nonnegative and smaller than steps")
+        if self.scheduler == "constant" and self.warmup_steps:
+            raise ValueError("warmup requires the cosine scheduler")
         if self.device not in {"auto", "cpu", "cuda", "mps"}:
             raise ValueError("unsupported device")
         return self

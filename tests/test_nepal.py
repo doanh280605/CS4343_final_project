@@ -121,6 +121,7 @@ def test_nepal_inference_with_independent_hand_labels(paired, tmp_path):
     torch.save(
         {
             "config": asdict(config),
+            "bands": BANDS,
             "model": build_model(config).state_dict(),
             "normalization": {"mean": [0.0] * 13, "std": [1.0] * 13},
         },

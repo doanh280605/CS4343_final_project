@@ -78,6 +78,9 @@ def plot_curves(history, path):
     steps = [row["step"] for row in history]
     for key in ("train_loss", "val_loss"):
         axes[0].plot(steps, [row[key] for row in history], label=key)
+    if "train_eval_loss" in history[0]:
+        axes[0].plot(steps, [row["train_eval_loss"] for row in history], label="train_eval_loss")
+        axes[1].plot(steps, [row["train_macro_f1"] for row in history], label="train_macro_f1")
     axes[1].plot(steps, [row["val_macro_f1"] for row in history], label="val_macro_f1")
     for ax in axes:
         ax.set_xlabel("Optimizer steps")

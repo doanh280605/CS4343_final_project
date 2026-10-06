@@ -3,6 +3,7 @@
 import csv
 import importlib.metadata
 import json
+import math
 import os
 import platform
 import random
@@ -16,7 +17,15 @@ from torch import nn
 from torch.utils.data import DataLoader, RandomSampler
 
 from landcover.config import Config
-from landcover.data import SatelliteDataset, digest, dump_json, fit_stats, load_prepared
+from landcover.data import (
+    BANDS,
+    CLASSES,
+    SatelliteDataset,
+    digest,
+    dump_json,
+    fit_stats,
+    load_prepared,
+)
 from landcover.metrics import plot_curves, save_predictions, score
 from landcover.models import build_model
 
@@ -79,6 +88,40 @@ def predict(model, loader, device):
     return all_ids, labels, np.asarray(probabilities), loss_sum / len(labels)
 
 
+def build_optimizer(model, config):
+    """Keep scratch rates uniform; optionally use a lower pretrained backbone rate."""
+    if (
+        config.model == "resnet18"
+        and config.initialization == "pretrained"
+        and config.pretrained_backbone_learning_rate is not None
+    ):
+        parameters = [
+            {
+                "params": [p for name, p in model.named_parameters() if not name.startswith("fc.")],
+                "lr": config.pretrained_backbone_learning_rate,
+                "name": "backbone",
+            },
+            {"params": model.fc.parameters(), "lr": config.learning_rate, "name": "head"},
+        ]
+    else:
+        parameters = [{"params": model.parameters(), "name": "all"}]
+    return torch.optim.AdamW(parameters, lr=config.learning_rate, weight_decay=config.weight_decay)
+
+
+def build_scheduler(optimizer, config):
+    """Linear warm-up followed by cosine decay over the fixed optimizer budget."""
+    if config.scheduler == "constant":
+        return None
+
+    def factor(step):
+        if step < config.warmup_steps:
+            return (step + 1) / config.warmup_steps
+        progress = (step - config.warmup_steps) / (config.steps - config.warmup_steps)
+        return 0.5 * (1 + math.cos(math.pi * min(progress, 1.0)))
+
+    return torch.optim.lr_scheduler.LambdaLR(optimizer, factor)
+
+
 def train(config):
     config.validate()
     seed_everything(config.seed, config.deterministic, config.threads)
@@ -113,11 +156,18 @@ def train(config):
         generator=torch.Generator().manual_seed(config.seed + 1),
     )
     val_loader = DataLoader(val_data, batch_size=config.batch_size, num_workers=config.workers)
+    train_eval_loader = None
+    if config.measure_train_metrics:
+        train_eval_loader = DataLoader(
+            SatelliteDataset(*dataset_args, stats=stats, augment=False),
+            batch_size=config.batch_size,
+            num_workers=config.workers,
+            generator=torch.Generator().manual_seed(config.seed + 2),
+        )
     device = device_for(config.device)
     model = build_model(config).to(device)
-    optimizer = torch.optim.AdamW(
-        model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay
-    )
+    optimizer = build_optimizer(model, config)
+    scheduler = build_scheduler(optimizer, config)
     run_info = {
         **provenance(),
         "device": str(device),
@@ -138,7 +188,10 @@ def train(config):
         if not torch.isfinite(loss):
             raise ValueError("non-finite training loss")
         loss.backward()
+        learning_rates = {f"lr_{group['name']}": group["lr"] for group in optimizer.param_groups}
         optimizer.step()
+        if scheduler is not None:
+            scheduler.step()
         interval_loss += loss.item()
         interval_count += 1
         if step % config.eval_every == 0 or step == config.steps:
@@ -150,7 +203,19 @@ def train(config):
                 "val_loss": val_loss,
                 "val_macro_f1": val["macro_f1"],
                 "val_accuracy": val["accuracy"],
+                **learning_rates,
             }
+            if train_eval_loader is not None:
+                _, train_labels, train_probs, train_eval_loss = predict(
+                    model, train_eval_loader, device
+                )
+                train_metrics = score(train_labels, train_probs.argmax(1))
+                row.update(
+                    train_eval_loss=train_eval_loss,
+                    train_macro_f1=train_metrics["macro_f1"],
+                    train_accuracy=train_metrics["accuracy"],
+                    macro_f1_gap=train_metrics["macro_f1"] - val["macro_f1"],
+                )
             history.append(row)
             interval_loss, interval_count = 0.0, 0
             with (output / "learning_curves.csv").open("w", newline="") as f:
@@ -160,7 +225,10 @@ def train(config):
             checkpoint = {
                 "model": model.state_dict(),
                 "optimizer": optimizer.state_dict(),
+                "scheduler": scheduler.state_dict() if scheduler is not None else None,
                 "config": asdict(config),
+                "bands": manifest["bands"],
+                "classes": manifest["classes"],
                 "normalization": stats,
                 "step": step,
                 "val_macro_f1": val["macro_f1"],
@@ -179,6 +247,12 @@ def train(config):
 def load_checkpoint(path, device="cpu"):
     checkpoint = torch.load(path, map_location="cpu", weights_only=True)
     config = Config(**checkpoint["config"]).validate()
+    if config.input_type == "ms" and checkpoint.get("bands") != BANDS:
+        raise ValueError(
+            "MS checkpoint band schema is missing or incompatible; retrain with v2 data"
+        )
+    if checkpoint.get("classes", CLASSES) != CLASSES:
+        raise ValueError("checkpoint class schema mismatch")
     model = build_model(config, load_pretrained=False)
     model.load_state_dict(checkpoint["model"])
     return model.to(device), checkpoint, config

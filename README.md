@@ -1,8 +1,21 @@
 # CS4343: satellite land-cover classification
 
-Runnable PyTorch foundation for EuroSAT sample-efficiency and RGB/13-band experiments, plus an optional Nepal transfer case study. Primary metric: macro-F1 across all ten classes. **No full research experiments have been run.** See [verification](docs/verification.md) for setup checks, [experiment plan](docs/experiment-plan.md) for the protocol, and [TODO](TODO.md) for team assignments.
+Runnable PyTorch foundation for EuroSAT sample-efficiency and RGB/13-band experiments, plus an optional Nepal transfer case study. Primary metric: macro-F1 across all ten classes. **Validation pilots have run; the full 63-run study is not complete.** See [verification](docs/verification.md) for setup checks, [experiment plan](docs/experiment-plan.md) for the protocol, and [TODO](TODO.md) for team assignments.
+
+The [supplied final-project report](docs/final-project-report-reference.md) is preserved as a reference. The [October 5 completion audit](docs/project-completion-audit.md) records remaining deliverables, report/code discrepancies, and owners from that report.
+
+Update: the full local dataset is prepared under `data/prepared-ms-v2/`; see [data readiness](docs/data-readiness.md). `EuroSAT_MS/`, data, and all run artifacts are Git-ignored. The earlier `data/prepared/` and `outputs/grid/` use obsolete band metadata/settings and must not be used for new research runs.
+
+The [final study commands](docs/final-study.md) use the frozen 3,000-step protocol and automatically produce results/graphs. Run `bash scripts/run_final_study.sh` for the 63 training/validation jobs, then `bash scripts/run_final_test.sh` for the explicit final test phase. Reports open from `outputs/final-study/report-val/index.html` and `report-test/index.html`. The baseline/grid examples below retain pilot defaults; the final study uses `configs/final-study.yaml`.
 
 ## Install
+
+New collaborators can clone the code with:
+
+```sh
+git clone https://github.com/doanh280605/CS4343_final_project.git
+cd CS4343_final_project
+```
 
 Requires [uv](https://docs.astral.sh/uv/getting-started/installation/). Run from this repository root:
 
@@ -24,15 +37,30 @@ export XDG_CACHE_HOME="$PWD/.cache"
 
 `.env.example` documents optional settings; it is not automatically loaded. If an output already exists, choose a new path/config instead of overwriting it.
 
+## Google Colab and shared experiments
+
+Open the [Colab notebook](https://colab.research.google.com/github/doanh280605/CS4343_final_project/blob/main/notebooks/landcover_colab.ipynb) and choose a GPU runtime. It installs CUDA PyTorch, caches the verified dataset ZIP in Drive, streams errors/progress, and saves results to Drive. See [study instructions](docs/final-study.md) for storage requirements and interrupted-run behavior.
+
+The notebook requests `landcover-colab.zip`, which is intentionally not committed.
+For the existing team study, get the same bundle from the team lead; it includes the
+exact source, manifests and fixed splits. On an already prepared checkout, create a
+bundle with `.venv/bin/python scripts/build_colab_bundle.py`; it appears under
+`outputs/colab-setup/`. A fresh checkout needs the data preparation below first.
+Keep the same bundle for an ongoing frozen study. Do not run two notebook sessions
+against the same study output folder. Coordinate experiment assignments before
+starting another full 63-run study.
+
 ## Prepare EuroSAT
 
 The main experiment only requires the multispectral archive: RGB is extracted from the same TIFFs. Download is approximately 2.07 GB, plus extraction space.
 
 ```sh
 uv run landcover download --kind ms
-uv run landcover prepare --ms-root data/raw/ms --output data/prepared
-uv run landcover audit
+uv run landcover prepare --ms-root data/raw/ms --output data/prepared-ms-v2
+uv run landcover audit --manifest data/prepared-ms-v2/manifest.json --splits data/prepared-ms-v2/splits.json
 ```
+
+For an already extracted root-level folder, use `--ms-root EuroSAT_MS` instead of downloading again. Do not overwrite an existing preparation. On this Mac, hidden `.pth` flags can prevent editable-package discovery; `export PYTHONPATH="$PWD/src"` from the repository root avoids that local issue.
 
 Optional official JPEG comparison and cross-archive identity verification (approximately 95 MB):
 
@@ -44,7 +72,7 @@ uv run landcover audit --manifest data/prepared-paired/manifest.json --splits da
 
 To use the paired preparation, update both paths in your run configs. Preparation scans nested archive directories automatically. It checks exact class/stem identity between supplied modalities; never silently drops unmatched samples. It hashes each file and persists fixed stratified 60/20/20 splits plus nested 100/10/5/1% training subsets. For all 27,000 samples, split sizes are 16,200/5,400/5,400. Store/share the resulting manifests alongside experiment artifacts; they are ignored by Git because they contain dataset paths. Recreate with the same archive contents and split seed 2026, or copy the full data tree with relative paths intact.
 
-Bands: B1, B2, B3, B4, B5, B6, B7, B8, B8A, B9, B10, B11, B12. RGB uses B4/B3/B2. TIFF digital numbers are divided by 10,000; JPEG values by 255. Channel normalization is fit on each selected training subset, reused for validation/test and stored in the checkpoint. Flips and 90-degree rotations are training-only.
+EuroSAT TIFF bands: B1, B2, B3, B4, B5, B6, B7, B8, B9, B10, B11, B12, B8A. RGB uses B4/B3/B2. The v2 schema corrects the previous placement of B8A; new MS checkpoints record their band schema, and missing/incompatible MS checkpoint schemas are rejected. TIFF digital numbers are divided by 10,000; JPEG values by 255. Channel normalization is fit on each selected training subset, reused for validation/test and stored in the checkpoint. Flips and 90-degree rotations are training-only.
 
 ## Quick real-data baseline
 
@@ -64,7 +92,7 @@ uv run landcover train --config configs/baseline.yaml
 uv run landcover evaluate --checkpoint outputs/baseline/best.pt --split val
 ```
 
-Default baseline: four convolution/BN/ReLU/max-pool blocks (32/64/128/256), global average pooling, dropout 0.3 and ten outputs. Training uses cross-entropy, AdamW and 1,000 optimizer steps. This step budget is a starting configuration, not an established sufficient training duration. Choose it using validation-only pilots before the main grid.
+Configured baseline: four convolution/BN/ReLU/max-pool blocks (32/64/128/256), global average pooling, dropout 0.5 and ten outputs. Training uses cross-entropy, AdamW and 1,000 optimizer steps with 50 warm-up steps followed by cosine decay. This step budget is a starting configuration, not an established sufficient training duration. Choose it using validation-only pilots before the main grid.
 
 ## Experiments and evaluation
 
@@ -74,9 +102,11 @@ uv run landcover grid --output outputs/grid
 bash outputs/grid/run.sh
 ```
 
-Generation produces **48** ResNet-18 configs: pretrained/scratch × RGB/MS × 100/10/5/1% × seeds 42/43/44. A configurable step budget, batch size and evaluation schedule are shared across fractions. Full batches are sampled with replacement. The same persisted subsets are shared across architectures, initializations, modalities and training seeds. `--base-config configs/baseline.yaml` can provide different common settings to grid generation.
+Generation produces **48** ResNet-18 configs: pretrained/scratch × RGB/MS × 100/10/5/1% × seeds 42/43/44. It uses `configs/baseline.yaml` unless `--base-config` selects another file. Choose a fresh output directory; the original local `outputs/grid/` is obsolete. A configurable step budget, batch size and evaluation schedule are shared across fractions. Full batches are sampled with replacement. The same persisted subsets are shared across architectures, initializations, modalities and training seeds.
 
-Four compact-CNN ablations are in `configs/ablations/`: augmentation on/off × dropout 0/0.3. Run each with `landcover train --config ...`; repeat with seeds 43/44 and unique output names for the final analysis.
+Four compact-CNN ablations are in `configs/ablations/`: augmentation on/off × dropout 0/0.5 at the 10% training fraction. Run each with `landcover train --config ...`; repeat with seeds 43/44 and unique output names for the final analysis (12 ablation runs).
+
+The main configs use a 1e-3 learning rate for scratch models and the pretrained classifier head, and 1e-4 for the pretrained backbone. Both groups share the warm-up/cosine multiplier. Curves record the rates actually used, plus unaugmented selected-training-subset F1/loss and the train/validation F1 gap. Generic `Config` defaults retain constant-rate behavior for older RGB smoke configs. No early stopping is used.
 
 All pretrained layers are fine-tuned. For 13-band ResNet-18, RGB kernels are copied to B4/B3/B2, remaining bands receive the RGB-kernel mean, then all input kernels are multiplied by 3/13. Scratch 13-band kernels use Kaiming initialization. The head is replaced with ten classes. Native 64×64 inputs and train-derived normalization deliberately differ from the ImageNet default 224×224 transform. See [methodological limits](docs/experiment-plan.md).
 
@@ -93,7 +123,7 @@ Evaluation uses the saved model and normalization, checks manifest/split hashes,
 | Location | Contents |
 | --- | --- |
 | `data/raw/` | Verified archives, extracted imagery, download provenance |
-| `data/prepared/` | Sample hashes, class/band schema, fixed splits and subsets |
+| `data/prepared-ms-v2/` | Corrected sample hashes, class/band schema, fixed splits and subsets |
 | `outputs/<run>/` | Config, manifest/split snapshots, package/Git/device metadata, normalization, best/last checkpoints |
 | `outputs/<run>/learning_curves.*` | CSV/PNG training loss, validation loss/F1/accuracy versus optimizer steps |
 | `outputs/<run>/evaluation-{val,test}/` | Predictions CSV with IDs/labels/probabilities, metrics JSON, confusion matrix PNG |

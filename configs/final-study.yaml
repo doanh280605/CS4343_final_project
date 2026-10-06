@@ -1,13 +1,13 @@
 manifest: data/prepared-ms-v2/manifest.json
 splits: data/prepared-ms-v2/splits.json
-output: outputs/baseline
+output: outputs/final-study
 model: compact
 initialization: scratch
 input_type: rgb
 rgb_source: ms
 fraction: 1.0
 seed: 42
-steps: 1000
+steps: 3000
 eval_every: 100
 batch_size: 64
 learning_rate: 0.001
@@ -18,7 +18,7 @@ measure_train_metrics: true
 weight_decay: 0.0001
 dropout: 0.5
 augmentation: true
-device: auto
+device: mps
 workers: 0
 threads: 4
 deterministic: true

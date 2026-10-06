@@ -12,7 +12,7 @@ from landcover.data import FRACTIONS, dump_json
 def grid(output, base=None):
     output = Path(output)
     output.mkdir(parents=True, exist_ok=False)
-    base = base or Config()
+    base = base or Config.load("configs/baseline.yaml")
     names = []
     for initialization, input_type, fraction, seed in itertools.product(
         ("pretrained", "scratch"), ("rgb", "ms"), FRACTIONS, (42, 43, 44)

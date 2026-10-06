@@ -1,5 +1,7 @@
 # Setup verification
 
+For the October 5 full-data audit, band-order correction, training updates and GPU checks, see [data readiness](data-readiness.md). The October 1 record below is retained as historical setup evidence; its remaining-work statements describe that earlier date.
+
 Verified locally on 2026-10-01 with Python 3.12.12, uv 0.9.26, PyTorch 2.6.0, torchvision 0.21.0 and Apple silicon CPU. These checks establish a runnable foundation; they are not research results.
 
 ## Checks performed

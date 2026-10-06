@@ -24,7 +24,8 @@ CLASSES = [
     "River",
     "SeaLake",
 ]
-BANDS = ["B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8", "B8A", "B9", "B10", "B11", "B12"]
+# EuroSAT TIFF storage order (TorchGeo EuroSAT.all_band_names), not numeric S2 order.
+BANDS = ["B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8", "B9", "B10", "B11", "B12", "B8A"]
 RGB_INDICES = [3, 2, 1]
 FRACTIONS = [1.0, 0.1, 0.05, 0.01]
 
@@ -91,7 +92,7 @@ def prepare(output, rgb_root=None, ms_root=None, seed=2026, limit_per_class=None
             row[f"{modality}_sha256"] = file_hash(paths[sid]) if paths else None
         rows.append(row)
     manifest = {
-        "version": 1,
+        "version": 2,
         "classes": CLASSES,
         "bands": BANDS,
         "samples": rows,

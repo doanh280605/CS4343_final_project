@@ -3,9 +3,11 @@ import zipfile
 
 import numpy as np
 import pytest
+import rasterio
 import torch
 
 from landcover.data import (
+    BANDS,
     CLASSES,
     RGB_INDICES,
     SatelliteDataset,
@@ -101,3 +103,30 @@ def test_zip_traversal_rejected(tmp_path):
     with pytest.raises(ValueError, match="unsafe"):
         extract_archive(archive, tmp_path / "dest")
     assert not (tmp_path / "escaped.txt").exists()
+
+
+def test_eurosat_storage_order_preserves_spectral_channels(tmp_path):
+    # Encode distinct physical-band values in the publisher's TIFF order (B8A last).
+    stored_values = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 80]
+    data = np.broadcast_to(np.array(stored_values)[:, None, None], (13, 64, 64)).astype("uint16")
+    with rasterio.open(
+        tmp_path / "sample.tif",
+        "w",
+        driver="GTiff",
+        count=13,
+        height=64,
+        width=64,
+        dtype="uint16",
+        transform=rasterio.transform.from_origin(300000, 3100000, 10, 10),
+    ) as dst:
+        dst.write(data)
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(
+        json.dumps({"samples": [{"id": "Forest/sample", "label": 1, "ms": "sample.tif"}]})
+    )
+    ms = SatelliteDataset(manifest, ["Forest/sample"], "ms").raw(0)
+    assert ms[BANDS.index("B8A"), 0, 0].item() == pytest.approx(80 / 10000)
+    assert ms[BANDS.index("B10"), 0, 0].item() == pytest.approx(10 / 10000)
+    assert ms[BANDS.index("B12"), 0, 0].item() == pytest.approx(12 / 10000)
+    rgb = SatelliteDataset(manifest, ["Forest/sample"], "rgb").raw(0)
+    assert rgb[:, 0, 0].numpy() == pytest.approx(np.array([4, 3, 2]) / 10000)

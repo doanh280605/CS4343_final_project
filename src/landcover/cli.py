@@ -37,6 +37,20 @@ def main():
     p = commands.add_parser("grid")
     p.add_argument("--output", default="outputs/grid")
     p.add_argument("--base-config")
+    p = commands.add_parser("study-prepare", help="freeze the 63-run study without training")
+    p.add_argument("--output", default="outputs/final-study")
+    p.add_argument("--base-config", default="configs/final-study.yaml")
+    p = commands.add_parser("study-run", help="run frozen study and generate validation report")
+    p.add_argument("--study", default="outputs/final-study")
+    p.add_argument("--retry-incomplete", action="store_true")
+    p = commands.add_parser("study-report", help="regenerate complete study tables and figures")
+    p.add_argument("--study", default="outputs/final-study")
+    p.add_argument("--split", choices=["val", "test"], default="val")
+    p = commands.add_parser(
+        "study-test", help="explicit final test phase after validation selection"
+    )
+    p.add_argument("--study", default="outputs/final-study")
+    p.add_argument("--allow-test", action="store_true")
     p = commands.add_parser("smoke", help="synthetic paired data, training, reload and validation")
     p.add_argument("--output", default="outputs/synthetic-smoke")
     p = commands.add_parser("nepal-acquire")
@@ -96,6 +110,19 @@ def main():
         base = Config.load(args.base_config) if args.base_config else None
         count = len(grid(args.output, base))
         print(f"Generated {count} configs; no training launched")
+    elif args.command.startswith("study-"):
+        from landcover.study import prepare_study, run_study, test_study
+        from landcover.study_report import report
+
+        if args.command == "study-prepare":
+            count = prepare_study(args.output, Config.load(args.base_config))
+            print(f"Frozen {count} runs; no training launched")
+        elif args.command == "study-run":
+            print(run_study(args.study, args.retry_incomplete))
+        elif args.command == "study-test":
+            print(test_study(args.study, args.allow_test))
+        else:
+            print(report(args.study, args.split))
     elif args.command == "smoke":
         smoke(args.output)
     else:

@@ -2,6 +2,8 @@
 
 No Nepal event or acquisition dates have been selected. No authenticated Earth Engine acquisition or real Nepal accuracy has been verified. Local raster operations are covered by synthetic geospatial checks.
 
+Use the v2 EuroSAT band schema: B1–B8, B9, B10, B11, B12, B8A. The export selects this order explicitly. Legacy MS checkpoints with missing/incompatible band metadata cannot be used; see [data readiness](data-readiness.md).
+
 ## 1. Select and verify the event
 
 Copy `configs/nepal.yaml` to an ignored location such as `data/nepal/event.yaml`. Record the event name/date, an authoritative source URL, source-check date, WGS84 AOI bounding box, cloud project, local projected CRS, and pre/post windows. The source must establish the actual event date, not merely the article publication date. Check imagery coverage before committing to an event; use comparable seasons and explain window widths.
