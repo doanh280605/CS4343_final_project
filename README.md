@@ -1,6 +1,6 @@
 # CS4343: satellite land-cover classification
 
-Runnable PyTorch foundation for EuroSAT sample-efficiency and RGB/13-band experiments, plus an optional Nepal transfer case study. Primary metric: macro-F1 across all ten classes. **Validation pilots have run; the full 63-run study is not complete.** See [verification](docs/verification.md) for setup checks, [experiment plan](docs/experiment-plan.md) for the protocol, and [TODO](TODO.md) for team assignments.
+Runnable PyTorch foundation for EuroSAT sample-efficiency and RGB/13-band experiments, plus an optional Nepal transfer case study. Primary metric: macro-F1 across all ten classes. **The Turing study completed all 63 training/validation runs and 51 final test evaluations on October 7, 2026.** The [shared results and opening instructions](docs/reports/turing/README.md) include the test and validation reports, charts and summary tables. Nepal evaluation remains unfinished. See [verification](docs/verification.md) for setup checks, [experiment plan](docs/experiment-plan.md) for the protocol, and [TODO](TODO.md) for the historical team checklist.
 
 The [supplied final-project report](docs/final-project-report-reference.md) is preserved as a reference. The [October 5 completion audit](docs/project-completion-audit.md) records remaining deliverables, report/code discrepancies, and owners from that report.
 
@@ -133,7 +133,7 @@ Evaluation uses the saved model and normalization, checks manifest/split hashes,
 | `outputs/<run>/evaluation-{val,test}/` | Predictions CSV with IDs/labels/probabilities, metrics JSON, confusion matrix PNG |
 | `outputs/grid/` | 48 YAML configs, index, explicit execution script |
 
-All data, checkpoints, caches and output directories are ignored by Git. Share small reviewed result summaries in a report; keep large artifacts in team storage. Never commit credentials.
+All data, checkpoints, caches and output directories are ignored by Git. The reviewed report export in `docs/reports/turing/` is shared for the presentation; it contains HTML pages, summary tables and linked figures, without checkpoints or per-image prediction files. Keep full experiment artifacts in team storage. Never commit credentials.
 
 ## Nepal and collaboration
 
