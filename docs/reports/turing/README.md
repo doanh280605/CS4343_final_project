@@ -49,3 +49,35 @@ this folder is not a complete backup for checkpoint/provenance verification. `ru
 `evaluation` columns in the CSVs retain their original artifact paths. Nepal transfer
 and disaster-change evaluation have not been completed. Pretrained and scratch runs
 use different learning rates, as recorded in the [experiment plan](../../experiment-plan.md).
+
+## Model weights and exact parameter counts
+
+Model weights are the learned tensors saved inside each `best.pt` checkpoint, not a
+single scalar. For the presentation, use the exact parameter counts below. These
+counts come from the repository architectures with their final ten-class classifier;
+pretrained and scratch versions of the same input architecture have identical counts.
+
+| Model used in the final study | Input channels | Learnable parameters | FP32 parameter storage |
+| --- | ---: | ---: | ---: |
+| ResNet-18, RGB | 3 | 11,181,642 | 44.73 MB |
+| ResNet-18, multispectral | 13 | 11,213,002 | 44.85 MB |
+| Compact CNN, RGB | 3 | 391,466 | 1.57 MB |
+
+Storage uses decimal MB and counts parameter tensors only. Batch-normalization
+buffers, checkpoint metadata and saved optimizer states add to the actual `.pt`
+file size. Dropout has no learnable parameters. The 13-band ResNet adds 31,360
+parameters in its first convolution.
+
+Slide-ready wording: **ResNet-18: 11.18M parameters for RGB / 11.21M for 13 bands;
+compact CNN: 0.391M parameters.**
+
+The highest mean validation macro-F1 condition in this Turing report is the
+full-data, pretrained, 13-band ResNet-18. Under the declared selection rule, seed 42
+is the representative checkpoint, saved at step 2,500:
+`outputs/turing-study/runs/resnet18-pretrained-ms-f1-s42/attempt-001/best.pt`.
+This condition has validation macro-F1 0.98276 ± 0.00100 across three seeds. Selection
+uses validation only; its test score is not a selection criterion.
+
+Checkpoint binaries belong in GitHub release assets or artifact storage, not Git
+commits. The report export itself contains no trained checkpoint files. A checkpoint
+supports model reload and evaluation; exact interrupted-training resume is unavailable.
