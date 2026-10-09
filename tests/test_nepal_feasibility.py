@@ -115,3 +115,26 @@ def test_yaml_fallback_dates_remain_serializable(tmp_path):
     )
     assert result["fallback_post_end"] == "2026-10-08"
     assert json.loads(json.dumps(result))["event_date"] == "2026-08-26"
+
+
+def test_offline_helpers_import_without_optional_earth_engine_dependencies(monkeypatch):
+    import builtins
+    import importlib.util
+
+    from landcover import nepal_feasibility
+
+    original_import = builtins.__import__
+
+    def without_nepal_dependencies(name, *args, **kwargs):
+        if name == "ee" or name == "google" or name.startswith("google."):
+            raise ModuleNotFoundError("optional Nepal dependencies are unavailable")
+        return original_import(name, *args, **kwargs)
+
+    spec = importlib.util.spec_from_file_location(
+        "offline_nepal_helpers", nepal_feasibility.__file__
+    )
+    module = importlib.util.module_from_spec(spec)
+    with monkeypatch.context() as context:
+        context.setattr(builtins, "__import__", without_nepal_dependencies)
+        spec.loader.exec_module(module)
+        assert module.pilot_budget(36000000, [[0, 0], [6000, 6000]]) == 10201

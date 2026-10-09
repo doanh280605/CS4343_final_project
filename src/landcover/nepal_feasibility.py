@@ -6,7 +6,6 @@ from pathlib import Path
 
 import numpy as np
 import requests
-from google.auth.transport.requests import AuthorizedSession
 
 from landcover.data import BANDS, dump_json, file_hash
 
@@ -111,6 +110,7 @@ def scout(
     output = Path(output)
     output.mkdir(parents=True, exist_ok=False)
     import ee
+    from google.auth.transport.requests import AuthorizedSession
 
     ee.Initialize(project=project)
     ee.data.setDeadline(120_000)

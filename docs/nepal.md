@@ -320,10 +320,11 @@ independent evidence. **Possible land-cover changes are never verified disaster 
 
 ## Verification and remaining work
 
-Local verification on 2026-10-08: `make check` passed (57 tests), CLI help passed,
+Local verification on 2026-10-08: `make check` passed (58 tests), CLI help passed,
 a fresh synthetic training/reload smoke passed, and `git diff --check` passed.
-The locked Nepal extra is installed locally with Python 3.12.11; no remote CI or
-Earth Engine export was run. Offline regression tests use synthetic rasters/labels only. Required checks are `make check`,
+The locked Nepal extra is installed locally with Python 3.12.11. Remote CI results
+have not been verified here; real Earth Engine exports and downloads are documented above.
+Offline regression tests use synthetic rasters/labels only. Required checks are `make check`,
 `uv run landcover --help`, a fresh synthetic smoke when needed, and `git diff --check`.
 Remaining human/access work: teammate checkpoint delivery and independent hash check; sourced
 full candidate corridor review and extended scene/coverage feasibility/download; ten-landmark QA; blind labels/adjudication; frozen transfer evaluation;
