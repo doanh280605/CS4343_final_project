@@ -139,3 +139,60 @@ def test_nepal_inference_with_independent_hand_labels(paired, tmp_path):
     result = json.loads((tmp_path / "inference/evaluation/metrics.json").read_text())
     assert result["provenance"]["hand_labeled_count"] == 1
     assert result["per_class"]["Forest"]["support"] == 1
+
+
+def test_corridor_mask_excludes_outside_and_preserves_paired_invalid_pixels(tmp_path):
+    from landcover.nepal import mask_corridor
+
+    profile = dict(
+        driver="GTiff",
+        width=4,
+        height=4,
+        count=13,
+        dtype="float32",
+        crs="EPSG:32645",
+        transform=rasterio.transform.from_origin(300000, 3100000, 10, 10),
+        nodata=-9999,
+    )
+    for period in ("pre", "post"):
+        data = np.ones((13, 4, 4), dtype="float32") * 1000
+        if period == "post":
+            data[0, 0, 0] = -9999
+        with rasterio.open(tmp_path / f"{period}.tif", "w", **profile) as dst:
+            dst.write(data)
+            dst.descriptions = tuple(BANDS)
+    geometry = {
+        "crs": "EPSG:32645",
+        "geometry": {
+            "type": "Polygon",
+            "coordinates": [
+                [
+                    [300000, 3100000],
+                    [300020, 3100000],
+                    [300020, 3099960],
+                    [300000, 3099960],
+                    [300000, 3100000],
+                ]
+            ],
+        },
+    }
+    path = tmp_path / "buffer.json"
+    dump_json(path, geometry)
+    output = tmp_path / "masked"
+    counts = mask_corridor(tmp_path / "pre.tif", tmp_path / "post.tif", path, output)
+    assert counts == dict(
+        inside_pixels=8,
+        outside_pixels=8,
+        pre_valid_inside=8,
+        post_valid_inside=7,
+        paired_valid_inside=7,
+    )
+    with rasterio.open(output / "post.tif") as src:
+        result = src.read()
+        assert (result[:, :, 2:] == -9999).all()
+        assert (result[:, 0, 0] == -9999).all()
+        assert (result[:, 1:, :2] == 1000).all()
+    geometry["crs"] = "EPSG:4326"
+    dump_json(path, geometry)
+    with pytest.raises(ValueError, match="CRS"):
+        mask_corridor(tmp_path / "pre.tif", tmp_path / "post.tif", path, tmp_path / "wrong")
