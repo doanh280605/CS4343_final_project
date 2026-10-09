@@ -53,6 +53,18 @@ def main():
     p.add_argument("--allow-test", action="store_true")
     p = commands.add_parser("smoke", help="synthetic paired data, training, reload and validation")
     p.add_argument("--output", default="outputs/synthetic-smoke")
+    p = commands.add_parser("nepal-feasibility", help="bounded metadata/coarse-coverage pilot")
+    p.add_argument("--geometry", required=True)
+    p.add_argument("--source-record", required=True)
+    p.add_argument("--project", required=True)
+    p.add_argument("--output", required=True)
+    p.add_argument("--coverage", action="store_true", help="60m coverage and 512px previews")
+    p.add_argument("--fallback", action="store_true", help="explicitly screen fallback windows")
+    p.add_argument("--full-corridor", action="store_true", help="screen the accepted full corridor")
+    p = commands.add_parser("nepal-download-pilot", help="small shared-grid 13-band download")
+    p.add_argument("--inventory", required=True)
+    p.add_argument("--geometry", required=True)
+    p.add_argument("--output", required=True)
     p = commands.add_parser("nepal-acquire")
     p.add_argument("--config", default="configs/nepal.yaml")
     p.add_argument("--output", required=True)
@@ -60,6 +72,11 @@ def main():
     p = commands.add_parser("nepal-align")
     p.add_argument("--reference", required=True)
     p.add_argument("--source", required=True)
+    p.add_argument("--output", required=True)
+    p = commands.add_parser("nepal-mask-corridor", help="mask paired rasters to a projected buffer")
+    p.add_argument("--pre", required=True)
+    p.add_argument("--post", required=True)
+    p.add_argument("--geometry", required=True)
     p.add_argument("--output", required=True)
     p = commands.add_parser("nepal-patches")
     p.add_argument("--pre", required=True)
@@ -72,11 +89,50 @@ def main():
     p.add_argument("--labels")
     p.add_argument("--output", required=True)
     p = commands.add_parser("nepal-change")
+    p.add_argument("--qa", required=True)
+    p.add_argument("--models", required=True)
     p.add_argument("--pre", required=True)
     p.add_argument("--post", required=True)
     p.add_argument("--patches", required=True)
     p.add_argument("--output", required=True)
     p.add_argument("--threshold", type=float, default=0.7)
+    p.add_argument("--exclusions", help="reviewed unknown patch IDs and manifest hash")
+    p = commands.add_parser("nepal-models", help="verify frozen RGB/MS seed-42 checkpoints")
+    p.add_argument("--rgb", required=True)
+    p.add_argument("--ms", required=True)
+    p.add_argument("--output", required=True)
+    p = commands.add_parser("nepal-annotate", help="blind geographic annotation sampling")
+    p.add_argument("--patches", required=True)
+    p.add_argument("--output", required=True)
+    p = commands.add_parser("nepal-freeze-labels")
+    p.add_argument("--assignment", required=True)
+    p.add_argument("--primary", required=True)
+    p.add_argument("--second", required=True)
+    p.add_argument("--final", required=True)
+    p.add_argument("--output", required=True)
+    p = commands.add_parser("nepal-compare")
+    p.add_argument("--rgb", required=True)
+    p.add_argument("--ms", required=True)
+    p.add_argument("--frozen", required=True)
+    p.add_argument("--models", required=True)
+    p.add_argument("--output", required=True)
+    p = commands.add_parser("nepal-review-exclusions")
+    p.add_argument("--assignment", required=True)
+    p.add_argument("--review", required=True)
+    p.add_argument("--output", required=True)
+    p = commands.add_parser(
+        "nepal-demo", help="unvalidated model demonstration; no accuracy claims"
+    )
+    for flag in ("pre", "post", "patches", "models", "output"):
+        p.add_argument("--" + flag, required=True)
+    p = commands.add_parser("nepal-sensitivity")
+    p.add_argument("--models", required=True)
+    p.add_argument("--pre", required=True)
+    p.add_argument("--post", required=True)
+    p.add_argument("--patches", required=True)
+    p.add_argument("--qa", required=True)
+    p.add_argument("--exclusions")
+    p.add_argument("--output", required=True)
     args = parser.parse_args()
     if args.command == "download":
         from landcover.download import download
@@ -126,18 +182,74 @@ def main():
     elif args.command == "smoke":
         smoke(args.output)
     else:
-        from landcover import nepal
+        from landcover import nepal, nepal_study
 
-        if args.command == "nepal-acquire":
+        if args.command == "nepal-feasibility":
+            from landcover.nepal_feasibility import scout
+
+            result = scout(
+                args.geometry,
+                args.source_record,
+                args.project,
+                args.output,
+                args.coverage,
+                args.fallback,
+                args.full_corridor,
+            )
+            print(json.dumps(result, indent=2))
+        elif args.command == "nepal-download-pilot":
+            from landcover.nepal_feasibility import download_pilot
+
+            print(download_pilot(args.inventory, args.geometry, args.output))
+        elif args.command == "nepal-acquire":
             print(nepal.acquire(args.config, args.output, args.submit))
         elif args.command == "nepal-align":
             nepal.align(args.reference, args.source, args.output)
+        elif args.command == "nepal-mask-corridor":
+            print(nepal.mask_corridor(args.pre, args.post, args.geometry, args.output))
         elif args.command == "nepal-patches":
             print(nepal.patches(args.pre, args.post, args.output))
         elif args.command == "nepal-infer":
             print(nepal.infer(args.checkpoint, args.patches, args.period, args.output, args.labels))
         elif args.command == "nepal-change":
-            nepal.change_map(args.pre, args.post, args.patches, args.output, args.threshold)
+            nepal_study.checked_change(
+                args.pre,
+                args.post,
+                args.patches,
+                args.qa,
+                args.models,
+                args.output,
+                args.threshold,
+                args.exclusions,
+            )
+        elif args.command == "nepal-demo":
+            print(
+                nepal_study.demonstration(
+                    args.pre, args.post, args.patches, args.models, args.output
+                )
+            )
+        elif args.command == "nepal-models":
+            print(nepal_study.verify_models(args.rgb, args.ms, args.output))
+        elif args.command == "nepal-annotate":
+            print(nepal_study.annotation(args.patches, args.output))
+        elif args.command == "nepal-freeze-labels":
+            nepal_study.freeze_labels(
+                args.assignment, args.primary, args.second, args.final, args.output
+            )
+        elif args.command == "nepal-compare":
+            print(nepal_study.compare(args.rgb, args.ms, args.frozen, args.models, args.output))
+        elif args.command == "nepal-review-exclusions":
+            nepal_study.review_exclusions(args.assignment, args.review, args.output)
+        elif args.command == "nepal-sensitivity":
+            nepal_study.sensitivity(
+                args.pre,
+                args.post,
+                args.patches,
+                args.qa,
+                args.models,
+                args.output,
+                args.exclusions,
+            )
 
 
 def smoke(output):

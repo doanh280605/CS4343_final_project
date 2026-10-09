@@ -1,0 +1,27 @@
+# Earth Engine end dates are EXCLUSIVE: these include Aug 25 and Sep 20.
+event_name: August 2026 Bhote Koshi-Trishuli flood
+event_date: 2026-08-26
+event_source: https://www.icimod.org/press-release/major-flash-flood-sweeps-through-nepals-rasuwa-district-raising-fears-of-further-downstream-flooding/
+source_checked_on: 2026-10-08
+project: null
+# Supply a sourced river line (buffered 2 km) or reviewed buffer polygon; bbox is required.
+bbox: null
+aoi_geojson: null
+aoi_source: null
+aoi_reviewed_by: null
+buffer_m: 2000
+# Context source identifies the corridor, but is not a digitized centerline.
+corridor_context_source: https://dor.gov.np/uploads/pages/Documents_1486708436.pdf
+pre_start: 2026-08-01
+pre_end: 2026-08-26
+post_start: 2026-08-27
+post_end: 2026-09-21
+fallback_pre_start: 2026-07-15
+fallback_pre_end: 2026-08-26
+fallback_post_start: 2026-08-27
+fallback_post_end: 2026-10-08
+collection: COPERNICUS/S2_HARMONIZED
+crs: EPSG:32645
+scale: 10
+clear_threshold: 0.6
+drive_folder: CS4343_Nepal

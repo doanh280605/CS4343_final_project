@@ -19,7 +19,11 @@ from landcover.metrics import save_predictions
 
 
 def validate_acquisition(config):
-    config = dict(config)
+    # YAML parses unquoted ISO dates, including optional fallback metadata, as date objects.
+    config = {
+        key: value.isoformat() if isinstance(value, date) else value
+        for key, value in config.items()
+    }
     config["project"] = config.get("project") or os.environ.get("EE_PROJECT")
     required = (
         "event_name",
@@ -61,6 +65,21 @@ def validate_acquisition(config):
         raise ValueError(
             "Sentinel-2 TOA coverage starts 2015-06-27; no pre-event 2015 April imagery"
         )
+    crs = rasterio.crs.CRS.from_string(config["crs"])
+    if not crs.is_projected or crs.linear_units != "metre":
+        raise ValueError("acquisition requires a projected CRS with metre units")
+    if config.get("aoi_geojson"):
+        if not config.get("aoi_source") or not config.get("aoi_reviewed_by"):
+            raise ValueError("corridor geometry requires a source and human reviewer")
+        geometry = json.loads(Path(config["aoi_geojson"]).read_text())
+        if geometry.get("type") == "Feature":
+            geometry = geometry["geometry"]
+        if geometry.get("type") not in {"LineString", "MultiLineString", "Polygon", "MultiPolygon"}:
+            raise ValueError("AOI requires a sourced river line or reviewed polygon")
+        config["aoi_geometry"] = geometry
+        config["aoi_sha256"] = file_hash(config["aoi_geojson"])
+        if geometry["type"] in {"LineString", "MultiLineString"} and config.get("buffer_m") != 2000:
+            raise ValueError("river corridor requires a 2000 metre buffer")
     bbox = config["bbox"]
     if len(bbox) != 4 or not (-180 <= bbox[0] < bbox[2] <= 180 and -90 <= bbox[1] < bbox[3] <= 90):
         raise ValueError("bbox must be WGS84 west,south,east,north")
@@ -84,6 +103,10 @@ def acquire(config_path, output, submit=False):
 
     ee.Initialize(project=config["project"] or os.environ.get("EE_PROJECT"))
     aoi = ee.Geometry.Rectangle(config["bbox"])
+    if config.get("aoi_geojson"):
+        aoi = ee.Geometry(config["aoi_geometry"])
+        if config["aoi_geometry"]["type"] in {"LineString", "MultiLineString"}:
+            aoi = aoi.buffer(config["buffer_m"])
     tasks = []
     for period in ("pre", "post"):
         collection = (
@@ -114,7 +137,15 @@ def acquire(config_path, output, submit=False):
             formatOptions={"noData": -9999},
         )
         task.start()
-        tasks.append({"period": period, "task_id": task.id, "scenes": scenes})
+        tasks.append(
+            {
+                "period": period,
+                "task_id": task.id,
+                "scenes": scenes,
+                "acquisition_times_ms": collection.aggregate_array("system:time_start").getInfo(),
+                "status": "submitted-not-downloaded",
+            }
+        )
         dump_json(output / "export-tasks.json", tasks)
     return {"status": "exports-submitted-not-downloaded", "tasks": tasks}
 
@@ -148,6 +179,7 @@ def patches(pre, post, output):
     output = Path(output)
     output.mkdir(parents=True, exist_ok=False)
     rows = []
+    excluded = []
     with rasterio.open(pre) as before, rasterio.open(post) as after:
         if (before.crs, before.transform, before.shape, before.count) != (
             after.crs,
@@ -158,11 +190,23 @@ def patches(pre, post, output):
             raise ValueError("align both 13-band rasters to exactly the same grid first")
         if before.crs is None:
             raise ValueError("CRS required")
+        if (
+            before.crs.linear_units != "metre"
+            or before.crs.is_geographic
+            or not np.allclose((abs(before.transform.a), abs(before.transform.e)), (10, 10))
+        ):
+            raise ValueError("patches require a projected 10 m grid")
+        if before.transform.b != 0 or before.transform.d != 0:
+            raise ValueError("patches require a north-up grid without rotation")
+        for src in (before, after):
+            if any(src.descriptions) and list(src.descriptions) != BANDS:
+                raise ValueError("raster band descriptions disagree with EuroSAT order")
         for row in range(0, before.height - 63, 64):
             for col in range(0, before.width - 63, 64):
                 window = Window(col, row, 64, 64)
                 pair = [src.read(window=window, masked=True) for src in (before, after)]
                 if any(np.ma.getmaskarray(x).any() or not np.isfinite(x.data).all() for x in pair):
+                    excluded.append({"row": row, "col": col, "reason": "masked_or_nonfinite"})
                     continue
                 sid = f"r{row:06d}_c{col:06d}"
                 record = {"sample_id": sid, "row": row, "col": col}
@@ -188,6 +232,18 @@ def patches(pre, post, output):
                 "pre_sha256": file_hash(pre),
                 "post_sha256": file_hash(post),
                 "samples": rows,
+                "coverage": {
+                    "total_pixels": before.height * before.width,
+                    "valid_pixels": len(rows) * 4096,
+                    "invalid_pixels": len(excluded) * 4096,
+                    "edge_pixels": before.height * before.width
+                    - (len(rows) + len(excluded)) * 4096,
+                    "pixel_area_m2": abs(
+                        before.transform.a * before.transform.e
+                        - before.transform.b * before.transform.d
+                    ),
+                    "excluded_windows": excluded,
+                },
             },
         )
     with (output / "labels.csv").open("w", newline="") as f:
@@ -216,7 +272,10 @@ def infer(checkpoint_path, patch_manifest, period, output, labels_path=None):
     with torch.inference_mode():
         for row in manifest["samples"]:
             with rasterio.open(Path(patch_manifest).parent / row[period]) as src:
-                x = src.read(out_dtype="float32") / 10000
+                data = src.read(out_dtype="float32", masked=True)
+                if np.ma.getmaskarray(data).any():
+                    raise ValueError("masked Nepal patch")
+                x = data.data / 10000
             if x.shape != (13, 64, 64) or not np.isfinite(x).all():
                 raise ValueError("invalid Nepal patch")
             if config.input_type == "rgb":
@@ -261,7 +320,9 @@ def infer(checkpoint_path, patch_manifest, period, output, labels_path=None):
     return len(ids)
 
 
-def change_map(pre_predictions, post_predictions, patch_manifest, output, threshold=0.7):
+def change_map(
+    pre_predictions, post_predictions, patch_manifest, output, threshold=0.7, exclusions=None
+):
     if not 0 <= threshold <= 1:
         raise ValueError("confidence threshold must be in [0,1]")
     pre, post = [json.loads(Path(p).read_text()) for p in (pre_predictions, post_predictions)]
@@ -278,6 +339,18 @@ def change_map(pre_predictions, post_predictions, patch_manifest, output, thresh
         raise ValueError("use the same frozen model for both dates")
     if any(p["patch_manifest_sha256"] != file_hash(patch_manifest) for p in (pre, post)):
         raise ValueError("patch provenance mismatch")
+    from landcover.nepal_study import validate_probabilities
+
+    validate_probabilities(pre)
+    validate_probabilities(post)
+    excluded_ids = set()
+    if exclusions:
+        review = json.loads(Path(exclusions).read_text())
+        if review.get("patch_manifest_sha256") != file_hash(patch_manifest):
+            raise ValueError("exclusion provenance mismatch")
+        excluded_ids = set(review["sample_ids"])
+        if not excluded_ids.issubset(ids):
+            raise ValueError("unknown exclusion IDs")
     output = Path(output)
     output.mkdir(parents=True, exist_ok=False)
     array = np.full((manifest["height"], manifest["width"]), 255, dtype="uint8")
@@ -285,7 +358,7 @@ def change_map(pre_predictions, post_predictions, patch_manifest, output, thresh
     before, after = np.asarray(pre["probabilities"]), np.asarray(post["probabilities"])
     accepted = 0
     for i, row in enumerate(manifest["samples"]):
-        if min(before[i].max(), after[i].max()) < threshold:
+        if row["sample_id"] in excluded_ids or min(before[i].max(), after[i].max()) < threshold:
             continue
         a, b = before[i].argmax(), after[i].argmax()
         transitions[a, b] += 1
@@ -311,8 +384,113 @@ def change_map(pre_predictions, post_predictions, patch_manifest, output, thresh
             "counts": transitions.tolist(),
             "accepted_patches": accepted,
             "excluded_patches": len(ids) - accepted,
+            "checkpoint_sha256": pre["checkpoint_sha256"],
+            "patch_manifest_sha256": file_hash(patch_manifest),
+            "pre_predictions_sha256": file_hash(pre_predictions),
+            "post_predictions_sha256": file_hash(post_predictions),
+            "review_exclusions_sha256": file_hash(exclusions) if exclusions else None,
             "confidence_threshold": threshold,
+            "review_excluded_patches": len(excluded_ids),
+            "changed_patches": int(transitions.sum() - np.trace(transitions)),
+            "unchanged_patches": int(np.trace(transitions)),
+            "coverage": {
+                "total_pixels": int(array.size),
+                "retained_pixels": accepted * 4096,
+                "unknown_pixels": int((array == 255).sum()),
+                "retained_fraction": accepted * 4096 / array.size,
+                "pixel_area_crs_units_squared": abs(
+                    manifest["transform"][0] * manifest["transform"][4]
+                    - manifest["transform"][1] * manifest["transform"][3]
+                ),
+            },
             "interpretation": "Possible land-cover changes; NOT verified disaster damage.",
             "map_codes": {"0": "same prediction", "1": "changed prediction", "255": "unknown"},
         },
     )
+
+
+def mask_corridor(pre, post, geometry_path, output):
+    """Keep only pixel centres inside a sourced projected buffer; preserve input nodata."""
+    from rasterio.features import geometry_mask
+
+    record = json.loads(Path(geometry_path).read_text())
+    geometry = record["geometry"]
+    if geometry.get("type") not in {"Polygon", "MultiPolygon"}:
+        raise ValueError("corridor masking requires a buffered polygon")
+    output = Path(output)
+    with rasterio.open(pre) as before, rasterio.open(post) as after:
+        if (before.crs, before.transform, before.shape, before.count) != (
+            after.crs,
+            after.transform,
+            after.shape,
+            after.count,
+        ) or before.count != 13:
+            raise ValueError("corridor masking requires identical 13-band grids")
+        if before.crs != rasterio.crs.CRS.from_string(record["crs"]):
+            raise ValueError("buffer CRS does not match raster CRS")
+        for src in (before, after):
+            if src.nodata != -9999 or list(src.descriptions) != BANDS:
+                raise ValueError("explicit -9999 nodata and verified band order required")
+        inside = geometry_mask(
+            [geometry],
+            out_shape=before.shape,
+            transform=before.transform,
+            invert=True,
+            all_touched=False,
+        )
+        if not inside.any():
+            raise ValueError("buffer does not intersect raster pixel centres")
+        output.mkdir(parents=True, exist_ok=False)
+        counts = dict(
+            inside_pixels=int(inside.sum()),
+            outside_pixels=int((~inside).sum()),
+            pre_valid_inside=0,
+            post_valid_inside=0,
+            paired_valid_inside=0,
+        )
+        profile = before.profile.copy()
+        profile.update(
+            dtype="float32",
+            nodata=-9999,
+            compress="deflate",
+            tiled=True,
+            blockxsize=256,
+            blockysize=256,
+        )
+        with (
+            rasterio.open(output / "pre.tif", "w", **profile) as pre_dst,
+            rasterio.open(output / "post.tif", "w", **profile) as post_dst,
+        ):
+            pre_dst.descriptions = post_dst.descriptions = tuple(BANDS)
+            for row in range(0, before.height, 256):
+                for col in range(0, before.width, 256):
+                    height, width = min(256, before.height - row), min(256, before.width - col)
+                    window = Window(col, row, width, height)
+                    keep = inside[row : row + height, col : col + width]
+                    valid = []
+                    for src, dst, period in ((before, pre_dst, "pre"), (after, post_dst, "post")):
+                        data = src.read(window=window, masked=True)
+                        good = (
+                            keep
+                            & ~np.ma.getmaskarray(data).any(axis=0)
+                            & np.isfinite(data.data).all(axis=0)
+                        )
+                        clean = data.filled(-9999).astype("float32")
+                        clean[:, ~good] = -9999
+                        dst.write(clean, window=window)
+                        counts[f"{period}_valid_inside"] += int(good.sum())
+                        valid.append(good)
+                    counts["paired_valid_inside"] += int((valid[0] & valid[1]).sum())
+    report = {
+        "geometry_sha256": file_hash(geometry_path),
+        "geometry_record": record,
+        "pre_source_sha256": file_hash(pre),
+        "post_source_sha256": file_hash(post),
+        "pre_sha256": file_hash(output / "pre.tif"),
+        "post_sha256": file_hash(output / "post.tif"),
+        "coverage": counts,
+        "pixel_selection": "centre inside buffer; all_touched=false",
+        "status": "masked to corridor; human imagery and registration QA pending",
+    }
+    dump_json(output / "masking.json", report)
+    return counts
